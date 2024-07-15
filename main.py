@@ -8,9 +8,11 @@ import argparse
 # Set language
 parser = argparse.ArgumentParser()
 parser.add_argument('--language', type=str, default='jp')
+parser.add_argument('--show-range', type=int, default=10)
 args = parser.parse_args()
 
 language = args.language
+show_range = args.show_range
 
 # Const
 with open("./key/key.txt", 'r', encoding='utf-8') as file: 
@@ -20,7 +22,6 @@ with open("./prompts/translator.txt", 'r', encoding='utf-8') as file:
 with open("./prompts/reader.txt", 'r', encoding='utf-8') as file: 
     reader_prompt = file.read().strip()
 
-show_range = 10
 lan_dict = {'en': 'English', 'cn': 'Chinese', 'jp': 'Japanese'}
 properties = ["entry_id", "updated", "published", "authors", "comment", 
               "journal_ref", "doi", "primary_category", "categories", "links"]
@@ -108,6 +109,7 @@ results = axv.results(search)
 round = 0
 while True: 
     print(f"\nRound {round + 1}: {round * show_range + 1} ~ {(round + 1) * show_range}")
+    round += 1
     batch = list(itertools.islice(results, show_range))
     if not batch:
         print("All data processed. ")
@@ -123,54 +125,54 @@ while True:
         print(translate(original_titles))
 
     # Choose papers
-    selected_idx = input("Enter index(es) of paper for more info (press '0' to skip or 'q' to quit): ").strip()
+    selected_idx = input("Enter index(es) of paper for more info (press enter to skip or 'q' to quit): ").strip()
     if selected_idx == 'q': 
         delete_all()
         break
-    if selected_idx != '0': 
-        selected_idx = list(map(eval, selected_idx.split()))
-        cache = {}
-        for j, i in enumerate(selected_idx): 
-            assert i > 0 and i <= show_range
-            print(f"\rPreparing for read ... ({j+1} / {len(selected_idx)})", end='', flush=True)
-            idx = i - 1
-            current_paper = batch[idx]
-            cur = read_paper(current_paper)
-            cache[i] = cur
-        print("\rPreparing for read ... Finished! ")
+    if selected_idx == '':
+        continue 
+    selected_idx = list(map(eval, selected_idx.split()))
+    cache = {}
+    for j, i in enumerate(selected_idx): 
+        assert i > 0 and i <= show_range
+        print(f"\rPreparing for read ... ({j+1} / {len(selected_idx)})", end='', flush=True)
+        idx = i - 1
+        current_paper = batch[idx]
+        cur = read_paper(current_paper)
+        cache[i] = cur
+    print("\rPreparing for read ... Finished! ")
 
-        # Read each paper
-        for k, v in cache.items(): 
-            fp, ct, tid, rid, fid = v
-            count = 0
-            while True:
-                run = gpt.beta.threads.runs.retrieve(thread_id=tid, run_id=rid)
-                print(f"\rReading paper[{k}] ... {count}", end='', flush=True)
+    # Read each paper
+    for k, v in cache.items(): 
+        fp, ct, tid, rid, fid = v
+        count = 0
+        while True:
+            run = gpt.beta.threads.runs.retrieve(thread_id=tid, run_id=rid)
+            print(f"\rReading paper[{k}] ... {count}", end='', flush=True)
 
-                if run.status == "completed": 
-                    messages = gpt.beta.threads.messages.list(thread_id=tid)
-                    for message in messages: 
-                        ct += message.content[0].text.value
-                    with open(fp, 'w', encoding='utf-8') as file: 
-                        file.write(ct)
-                    print(f"\rReading paper[{k}] ... Completed! ")
-                    break
+            if run.status == "completed": 
+                messages = gpt.beta.threads.messages.list(thread_id=tid)
+                for message in messages: 
+                    ct += message.content[0].text.value
+                with open(fp, 'w', encoding='utf-8') as file: 
+                    file.write(ct)
+                print(f"\rReading paper[{k}] ... Completed! ")
+                break
 
-                if run.status == "failed": 
-                    print(f"\rReading paper [{k}] ... Failed. ")
-                    break
-                count += 1
-                time.sleep(1)
+            if run.status == "failed": 
+                print(f"\rReading paper [{k}] ... Failed. ")
+                break
+            count += 1
+            time.sleep(1)
 
-            gpt.beta.vector_stores.files.delete(
-                vector_store_id=vector_store.id,
-                file_id=fid
-            )
-            gpt.files.delete(fid)
+        gpt.beta.vector_stores.files.delete(
+            vector_store_id=vector_store.id,
+            file_id=fid
+        )
+        gpt.files.delete(fid)
 
 
-        key = input("Continue? (press enter to continue or 'q' to quit): ")
-        if key == 'q':
-            delete_all()
-            break
-    round += 1
+    key = input("Continue? (press enter to continue or 'q' to quit): ")
+    if key == 'q':
+        delete_all()
+        break
